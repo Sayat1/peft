@@ -110,6 +110,7 @@ class DoraLinearLayer(nn.Module):
         weight = dequantize_module_weight(base_layer)
         weight = weight.to(x.dtype)
         weight_norm = weight + (lora_weight * scaling)
+        del weight
         #weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
         # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
         # "[...] we suggest treating ||V +∆V ||_c in
@@ -196,6 +197,7 @@ class DoraConv2dLayer(DoraLinearLayer):
         lora_weight = self.make_weight(lora_A.weight, lora_B.weight)
         magnitude = self.weight
         weight_norm = weight + (lora_weight * scaling)
+        del weight
         #weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
         # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
         # "[...] we suggest treating ||V +∆V ||_c in
