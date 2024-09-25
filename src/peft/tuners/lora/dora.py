@@ -116,8 +116,14 @@ class DoraLinearLayer(nn.Module):
         # graph. This means that while ||V + ∆V ||_c dynamically
         # reflects the updates of ∆V , it won’t receive any gradient
         # during backpropagation"
-        weight_norm = weight_norm.detach()
-        mag_norm_scale = (magnitude / weight_norm).view(1, -1)
+        eps = torch.finfo(weight_norm.dtype).eps
+        norm = weight_norm.detach() \
+                 .transpose(0, 1) \
+                 .reshape(weight_norm.shape[1], -1) \
+                 .norm(dim=1, keepdim=True) \
+                 .reshape(weight_norm.shape[1], *[1] * self.dora_num_dims) \
+                 .transpose(0, 1) + eps
+        mag_norm_scale = (magnitude / norm).view(1, -1)
         result_dora = (mag_norm_scale - 1) * (
             F.linear(x, transpose(weight, self.fan_in_fan_out))
         ) + mag_norm_scale * lora_result * scaling
@@ -155,8 +161,14 @@ class DoraEmbeddingLayer(DoraLinearLayer):
         # graph. This means that while ||V + ∆V ||_c dynamically
         # reflects the updates of ∆V , it won’t receive any gradient
         # during backpropagation"
-        weight_norm = weight_norm.detach()
-        mag_norm_scale = magnitude / weight_norm
+        eps = torch.finfo(weight_norm.dtype).eps
+        norm = weight_norm.detach() \
+                 .transpose(0, 1) \
+                 .reshape(weight_norm.shape[1], -1) \
+                 .norm(dim=1, keepdim=True) \
+                 .reshape(weight_norm.shape[1], *[1] * self.dora_num_dims) \
+                 .transpose(0, 1) + eps
+        mag_norm_scale = magnitude / norm
         result_dora = mag_norm_scale * (embed_fn(x, lora_A) @ lora_B) * scaling
         return mag_norm_scale, result_dora
 
@@ -189,8 +201,14 @@ class DoraConv2dLayer(DoraLinearLayer):
         # graph. This means that while ||V + ∆V ||_c dynamically
         # reflects the updates of ∆V , it won’t receive any gradient
         # during backpropagation"
-        weight_norm = weight_norm.detach()
-        mag_norm_scale = magnitude / weight_norm
+        eps = torch.finfo(weight_norm.dtype).eps
+        norm = weight_norm.detach() \
+                 .transpose(0, 1) \
+                 .reshape(weight_norm.shape[1], -1) \
+                 .norm(dim=1, keepdim=True) \
+                 .reshape(weight_norm.shape[1], *[1] * self.dora_num_dims) \
+                 .transpose(0, 1) + eps
+        mag_norm_scale = magnitude / norm
         result_dora = (mag_norm_scale - 1) * (
             F.conv2d(
                 x,
