@@ -82,21 +82,13 @@ class DoraLinearLayer(nn.Module):
                 base_layer = deepcopy(base_layer)
 
             weight = dequantize_module_weight(base_layer)
-            if weight.data.ndim == 4:  # For handling LoRAs applied to Conv2Ds.
-                lora_weight = torch.mm(lora_B.flatten(start_dim=1), lora_A.flatten(start_dim=1))
-                lora_weight = lora_weight.reshape(weight.shape)
-            else:
-                lora_weight = lora_B @ lora_A
-
-            if dtype_is_fp16:
-                lora_weight = lora_weight.half()
-            weight = weight.to(lora_A.device)
             weight = transpose(weight, self.fan_in_fan_out)
-            weight = weight + scaling * lora_weight
             self.dora_num_dims = weight.dim() - 1
             weight_norm = torch.norm(
                 weight.transpose(1, 0).reshape(weight.shape[1], -1),
                 dim=1, keepdim=True).reshape(weight.shape[1], *[1] * self.dora_num_dims).transpose(1, 0).to(device=lora_A.device)
+            if dtype_is_fp16:
+                weight_norm = weight_norm.half()
 
         if place_on_cpu:
             weight_norm = weight_norm.to("cpu")
