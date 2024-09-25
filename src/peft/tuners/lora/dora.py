@@ -96,7 +96,7 @@ class DoraLinearLayer(nn.Module):
         # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
         # calculate the same but using forward.
         #x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
-        lora_weight = self.make_weight(lora_A, lora_B)
+        lora_weight = self.make_weight(lora_A.weight, lora_B.weight)
 
         magnitude = self.weight
         weight = dequantize_module_weight(base_layer)
@@ -137,7 +137,7 @@ class DoraEmbeddingLayer(DoraLinearLayer):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-        lora_weight = self.make_weight(lora_A, lora_B)
+        lora_weight = self.make_weight(lora_A.weight, lora_B.weight)
         magnitude = self.weight
         weight = base_layer.weight
         weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
@@ -172,7 +172,7 @@ class DoraConv2dLayer(DoraLinearLayer):
         """
         weight = base_layer.weight
         #lora_weight = torch.mm(lora_B.weight.flatten(start_dim=1), lora_A.weight.flatten(start_dim=1))
-        lora_weight = self.make_weight(lora_A, lora_B)
+        lora_weight = self.make_weight(lora_A.weight, lora_B.weight)
         magnitude = self.weight
         weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
         # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
