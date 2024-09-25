@@ -27,6 +27,7 @@ class DoraLinearLayer(nn.Module):
         super().__init__()
         self.fan_in_fan_out = fan_in_fan_out
         self.dora_num_dims = None
+        self.shape = None
 
     def make_weight(self, A: torch.Tensor, B: torch.Tensor):
         """Layer-type-independent way of creating a weight matrix from LoRA A/B.
@@ -45,6 +46,19 @@ class DoraLinearLayer(nn.Module):
         W = B.view(B.size(0), -1) @ A.view(A.size(0), -1)
         return W.view(self.shape)
 
+    def get_weight_shape(module: nn.Module) -> torch.Size:
+        import bitsandbytes as bnb
+        param = module.weight
+
+        if isinstance(param, bnb.nn.Params4bit):
+            if param.quant_state is not None:
+                return param.quant_state.shape
+            else:
+                return param.shape
+
+        return param.shape
+
+
     def get_weight_norm(self, weight, lora_weight, scaling) -> torch.Tensor:
         # calculate L2 norm of weight matrix, column-wise
         weight = transpose(weight, self.fan_in_fan_out)
@@ -58,6 +72,8 @@ class DoraLinearLayer(nn.Module):
         if dtype_is_fp16:
             lora_A = lora_A.float()
             lora_B = lora_B.float()
+
+        self.shape = self.get_weight_shape(base_layer)
 
         with gather_params_ctx(base_layer.parameters()):
             if base_layer.__class__.__name__ == "Linear4bit":
