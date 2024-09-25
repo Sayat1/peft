@@ -124,10 +124,9 @@ class DoraLinearLayer(nn.Module):
                  .norm(dim=1, keepdim=True) \
                  .reshape(weight_norm.shape[1], *[1] * self.dora_num_dims) \
                  .transpose(0, 1) + eps
-        mag_norm_scale = (magnitude / norm).view(1, -1)
-        result_dora = (mag_norm_scale - 1) * (
-            F.linear(x, transpose(weight, self.fan_in_fan_out))
-        ) + mag_norm_scale * lora_result * scaling
+        
+        weight_norm = magnitude * (weight_norm / norm)
+        result_dora = F.linear(x,weight_norm,base_layer.bias)
 
         # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
         # This is only correct if dropout=0, otherwise results will differ:
@@ -211,18 +210,16 @@ class DoraConv2dLayer(DoraLinearLayer):
                  .norm(dim=1, keepdim=True) \
                  .reshape(weight_norm.shape[1], *[1] * self.dora_num_dims) \
                  .transpose(0, 1) + eps
-        mag_norm_scale = magnitude / norm
-        result_dora = (mag_norm_scale - 1) * (
-            F.conv2d(
+        weight_norm = magnitude * (weight_norm / norm)
+        result_dora = F.conv2d(
                 x,
-                weight,
+                weight_norm,
                 bias=None,
                 stride=base_layer.stride,
                 padding=base_layer.padding,
                 dilation=base_layer.dilation,
                 groups=base_layer.groups,
             )
-        ) + mag_norm_scale * lora_B(lora_A(x)) * scaling
 
         return result_dora
 
