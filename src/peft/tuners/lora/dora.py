@@ -46,7 +46,7 @@ class DoraLinearLayer(nn.Module):
         W = B.view(B.size(0), -1) @ A.view(A.size(0), -1)
         return W.view(self.shape)
 
-    def get_weight_shape(module: nn.Module) -> torch.Size:
+    def get_weight_shape(self, module: nn.Module) -> torch.Size:
         import bitsandbytes as bnb
         param = module.weight
 
