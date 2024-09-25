@@ -26,6 +26,24 @@ class DoraLinearLayer(nn.Module):
     def __init__(self, fan_in_fan_out):
         super().__init__()
         self.fan_in_fan_out = fan_in_fan_out
+        self.dora_num_dims = None
+
+    def make_weight(self, A: torch.Tensor, B: torch.Tensor):
+        """Layer-type-independent way of creating a weight matrix from LoRA A/B.
+
+        While linear layer types are a straightforward matrix multiplication of
+        the weights, convolution is a little less straightforward. This function
+        will take a PEFT A/B matrix and return the full-sized weight matrix.
+
+        A should be the equivalent of "LoRA Down" in most code, and likewise B
+        the equivalent of "LoRA Up".
+
+        Thanks to KohakuBlueLeaf (author of LyCORIS) for showing me how to do
+        this in a layer-independent fashion. I was tearing my hair out over
+        wrangling the matrix shapes in a functionally correct manner before.
+        """
+        W = B.view(B.size(0), -1) @ A.view(A.size(0), -1)
+        return W.view(self.shape)
 
     def get_weight_norm(self, weight, lora_weight, scaling) -> torch.Tensor:
         # calculate L2 norm of weight matrix, column-wise
@@ -56,7 +74,13 @@ class DoraLinearLayer(nn.Module):
 
             if dtype_is_fp16:
                 lora_weight = lora_weight.half()
-            weight_norm = self.get_weight_norm(weight.to(lora_A.device), lora_weight, scaling)
+            weight = weight.to(lora_A.device)
+            weight = transpose(weight, self.fan_in_fan_out)
+            weight = weight + scaling * lora_weight
+            self.dora_num_dims = weight.dim() - 1
+            weight_norm = torch.norm(
+                weight.transpose(1, 0).reshape(weight.shape[1], -1),
+                dim=1, keepdim=True).reshape(weight.shape[1], *[1] * self.dora_num_dims).transpose(1, 0).to(device=lora_A.device)
 
         if place_on_cpu:
             weight_norm = weight_norm.to("cpu")
@@ -71,8 +95,8 @@ class DoraLinearLayer(nn.Module):
 
         # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
         # calculate the same but using forward.
-        x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
-        lora_weight = lora_B(lora_A(x_eye)).T
+        #x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
+        lora_weight = self.make_weight(lora_A, lora_B)
 
         magnitude = self.weight
         weight = dequantize_module_weight(base_layer)
@@ -113,7 +137,7 @@ class DoraEmbeddingLayer(DoraLinearLayer):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-        lora_weight = (lora_A @ lora_B).T
+        lora_weight = self.make_weight(lora_A, lora_B)
         magnitude = self.weight
         weight = base_layer.weight
         weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
@@ -147,8 +171,8 @@ class DoraConv2dLayer(DoraLinearLayer):
         output.
         """
         weight = base_layer.weight
-        lora_weight = torch.mm(lora_B.weight.flatten(start_dim=1), lora_A.weight.flatten(start_dim=1))
-        lora_weight = lora_weight.reshape(weight.shape)
+        #lora_weight = torch.mm(lora_B.weight.flatten(start_dim=1), lora_A.weight.flatten(start_dim=1))
+        lora_weight = self.make_weight(lora_A, lora_B)
         magnitude = self.weight
         weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
         # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
