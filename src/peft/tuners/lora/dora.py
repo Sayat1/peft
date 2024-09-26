@@ -108,6 +108,10 @@ class DoraLinearLayer(nn.Module):
         print("lora_weight")
         print(lora_weight)
         print(lora_weight.shape)
+        lora_weight = lora_weight.transpose(0, 1)
+        print("lora_weight2")
+        print(lora_weight)
+        print(lora_weight.shape)
         magnitude = self.weight
         weight = dequantize_module_weight(base_layer)
         weight = weight.to(x.dtype)
