@@ -106,9 +106,15 @@ class DoraLinearLayer(nn.Module):
         # mag_norm_scale = mag_norm_scale.norm(dim=1, keepdim=True)
         # print("magnorm3")
         # print(mag_norm_scale.shape)
-        result_dora = (mag_norm_scale - 1) * (
-            F.linear(x, transpose(weight, self.fan_in_fan_out))
-        ) + mag_norm_scale * lora_result * scaling
+        ms = (mag_norm_scale - 1)
+        fl = F.linear(x, transpose(weight, self.fan_in_fan_out))
+        print("fl")
+        print(fl.shape)
+        mf = ms * fl
+        result_dora = mf + mag_norm_scale * lora_result * scaling
+        # result_dora = (mag_norm_scale - 1) * (
+        #     F.linear(x, transpose(weight, self.fan_in_fan_out))
+        # ) + mag_norm_scale * lora_result * scaling
         print("result")
         print(result_dora.shape)
         # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
