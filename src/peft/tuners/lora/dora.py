@@ -87,7 +87,7 @@ class DoraLinearLayer(nn.Module):
         ##get_weight_norm
         weight = transpose(weight, self.fan_in_fan_out)
         weight = weight + scaling * lora_weight.detach()
-        weight = weight.T
+        #weight = weight.T
         weight_norm = torch.linalg.norm(weight, dim=1).to(weight.dtype)
         ###
         #weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
