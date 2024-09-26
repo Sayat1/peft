@@ -93,7 +93,7 @@ class DoraLinearLayer(nn.Module):
         mag_norm_scale = (magnitude / weight_norm)
         print("magnorm1")
         print(mag_norm_scale.shape)
-        mag_norm_scale = mag_norm_scale.view(weight.shape[1], -1)
+        mag_norm_scale = mag_norm_scale.view(1, -1)
         print("magnorm2")
         print(mag_norm_scale.shape)
         # mag_norm_scale = mag_norm_scale.norm(dim=1, keepdim=True)
