@@ -87,6 +87,8 @@ class DoraLinearLayer(nn.Module):
         # during backpropagation"
         weight_norm = weight_norm.detach()
         mag_norm_scale = (magnitude / weight_norm).view(1, -1)
+        print("magnorm")
+        print(mag_norm_scale.shape)
         result_dora = (mag_norm_scale - 1) * (
             F.linear(x, transpose(weight, self.fan_in_fan_out))
         ) + mag_norm_scale * lora_result * scaling
