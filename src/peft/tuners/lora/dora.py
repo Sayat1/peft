@@ -25,7 +25,7 @@ from peft.utils.other import transpose
 class DoraLinearLayer(nn.Module):
     def __init__(self, fan_in_fan_out):
         super().__init__()
-        self.fan_in_fan_out = fan_in_fan_out
+        self.fan_in_fan_out = True
 
     def get_weight_norm(self, weight, lora_weight, scaling) -> torch.Tensor:
         # calculate L2 norm of weight matrix, column-wise
@@ -75,7 +75,6 @@ class DoraLinearLayer(nn.Module):
         lora_weight = lora_B(lora_A(x_eye)).T
 
         magnitude = self.weight
-        print(magnitude)
         weight = dequantize_module_weight(base_layer)
         weight = weight.to(x.dtype)
         weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
