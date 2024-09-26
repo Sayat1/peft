@@ -125,9 +125,12 @@ class DoraLinearLayer(nn.Module):
         print("mag_norm")
         print(mag_norm_scale.shape)
         #mag_norm_scale = (magnitude / weight_norm).view(1, -1)
-        result_dora = (mag_norm_scale - 1) * (
-            F.linear(x, transpose(weight, self.fan_in_fan_out))
-        ) + mag_norm_scale * lora_result * scaling
+        print("xdd")
+        dd = (mag_norm_scale - 1)
+        ff= (F.linear(x, transpose(weight, self.fan_in_fan_out)))
+        print(dd.shape)
+        print(ff.shape)
+        result_dora = dd * ff  + mag_norm_scale * lora_result * scaling
 
         # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
         # This is only correct if dropout=0, otherwise results will differ:
