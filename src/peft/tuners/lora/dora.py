@@ -70,7 +70,7 @@ class DoraLinearLayer(nn.Module):
         """
         print("x")
         print(x.shape)
-        lora_result = lora_A(lora_B(x))
+        lora_result = lora_B(lora_A(x))
         print("lora_result")
         print(lora_result.shape)
 
