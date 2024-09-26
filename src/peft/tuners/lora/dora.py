@@ -25,12 +25,13 @@ from peft.utils.other import transpose
 class DoraLinearLayer(nn.Module):
     def __init__(self, fan_in_fan_out):
         super().__init__()
-        self.fan_in_fan_out = True
+        self.fan_in_fan_out = fan_in_fan_out
 
     def get_weight_norm(self, weight, lora_weight, scaling) -> torch.Tensor:
         # calculate L2 norm of weight matrix, column-wise
         weight = transpose(weight, self.fan_in_fan_out)
         weight = weight + scaling * lora_weight
+        weight = weight.T
         weight_norm = torch.linalg.norm(weight, dim=1).to(weight.dtype)
         return weight_norm
 
