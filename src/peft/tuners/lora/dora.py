@@ -99,7 +99,7 @@ class DoraLinearLayer(nn.Module):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-        print("dora forward")
+        #print("dora forward")
         lora_result = lora_B(lora_A(x))
 
         magnitude = self.weight
