@@ -86,15 +86,17 @@ class DoraLinearLayer(nn.Module):
         # reflects the updates of ∆V , it won’t receive any gradient
         # during backpropagation"
         weight_norm = weight_norm.detach()
+        print("weight")
+        print(weight.shape)
         mag_norm_scale = (magnitude / weight_norm)
         print("magnorm1")
         print(mag_norm_scale.shape)
         mag_norm_scale = mag_norm_scale.view(weight.shape[1], -1)
         print("magnorm2")
         print(mag_norm_scale.shape)
-        mag_norm_scale = mag_norm_scale.norm(dim=1, keepdim=True)
-        print("magnorm3")
-        print(mag_norm_scale.shape)
+        # mag_norm_scale = mag_norm_scale.norm(dim=1, keepdim=True)
+        # print("magnorm3")
+        # print(mag_norm_scale.shape)
         result_dora = (mag_norm_scale - 1) * (
             F.linear(x, transpose(weight, self.fan_in_fan_out))
         ) + mag_norm_scale * lora_result * scaling
