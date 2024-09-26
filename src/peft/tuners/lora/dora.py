@@ -100,18 +100,12 @@ class DoraLinearLayer(nn.Module):
         output.
         """
         lora_result = lora_B(lora_A(x))
-        print("faninout")
-        print(self.fan_in_fan_out)
         # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
         # calculate the same but using forward.
-        x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
-        lora_weight = lora_B(lora_A(x_eye)).T
-        lora_weight = lora_weight.transpose(0,1)
         magnitude = self.weight
         weight = dequantize_module_weight(base_layer)
         weight = weight.to(x.dtype)
-        weight_detach = weight.detach().transpose(0,1)
-        weight_norm = self.get_weight_norm(weight_detach, lora_weight.detach(), scaling)
+        weight_norm = weight + (self.make_weight(lora_A.weight, lora_B.weight) * scaling)
         print("weight_norm")
         print(weight_norm)
         print(weight_norm.shape)
