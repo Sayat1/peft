@@ -99,25 +99,40 @@ class DoraLinearLayer(nn.Module):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-        #print("dora forward")
         lora_result = lora_B(lora_A(x))
 
+        # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
+        # calculate the same but using forward.
+        x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
+        lora_weight = lora_B(lora_A(x_eye)).T
+
         magnitude = self.weight
-        A = lora_A.weight
-        B = lora_B.weight
-        orig_weight = dequantize_module_weight(base_layer)
-        orig_weight = orig_weight.to(A.dtype)
-        WP = orig_weight + (self.make_weight(A, B) * scaling)
-        del orig_weight
-        eps = torch.finfo(WP.dtype).eps
-        norm = WP.detach() \
-                 .transpose(0, 1) \
-                 .reshape(WP.shape[1], -1) \
-                 .norm(dim=1, keepdim=True) \
-                 .reshape(WP.shape[1], *[1] * self.dora_num_dims) \
-                 .transpose(0, 1) + eps
-        WP = magnitude * (WP / norm)
-        return F.linear(lora_result, WP,base_layer.bias)
+        weight = dequantize_module_weight(base_layer)
+        weight = weight.to(x.dtype)
+        weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
+        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
+        # "[...] we suggest treating ||V +∆V ||_c in
+        # Eq. (5) as a constant, thereby detaching it from the gradient
+        # graph. This means that while ||V + ∆V ||_c dynamically
+        # reflects the updates of ∆V , it won’t receive any gradient
+        # during backpropagation"
+        weight_norm = weight_norm.detach()
+        mag_norm_scale = (magnitude / weight_norm).view(1, -1)
+        result_dora = (mag_norm_scale - 1) * (
+            F.linear(x, transpose(weight, self.fan_in_fan_out))
+        ) + mag_norm_scale * lora_result * scaling
+
+        # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
+        # This is only correct if dropout=0, otherwise results will differ:
+        # https://github.com/huggingface/peft/pull/1474#issuecomment-1964682771
+        # bias = self.get_base_layer().bias
+        # if bias is not None:
+        #     result = result - bias
+        # result = mag_norm_scale * result + mag_norm_scale * lora_B(lora_A(x)) * scaling
+        # if bias is not None:
+        #     result = result + bias
+
+        return result_dora
 
     def __repr__(self) -> str:
         rep = super().__repr__()
