@@ -105,7 +105,9 @@ class DoraLinearLayer(nn.Module):
         # calculate the same but using forward.
         x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
         lora_weight = lora_B(lora_A(x_eye)).T
-
+        print("lora_weight")
+        print(lora_weight)
+        print(lora_weight.shape)
         magnitude = self.weight
         weight = dequantize_module_weight(base_layer)
         weight = weight.to(x.dtype)
