@@ -80,7 +80,12 @@ class DoraLinearLayer(nn.Module):
         weight = weight.to(x.dtype)
         print("weightbeforenorm")
         print(weight.shape)
-        weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
+        ##get_weight_norm
+        weight = transpose(weight, self.fan_in_fan_out)
+        weight = weight + scaling * lora_weight.detach()
+        weight_norm = weight.T
+        ###
+        #weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
         # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
         # "[...] we suggest treating ||V +∆V ||_c in
         # Eq. (5) as a constant, thereby detaching it from the gradient
@@ -88,6 +93,8 @@ class DoraLinearLayer(nn.Module):
         # reflects the updates of ∆V , it won’t receive any gradient
         # during backpropagation"
         weight_norm = weight_norm.detach()
+        print("weight_norm")
+        print(weight_norm.shape)
         print("weight")
         print(weight.shape)
         mag_norm_scale = (magnitude / weight_norm)
@@ -102,7 +109,8 @@ class DoraLinearLayer(nn.Module):
         result_dora = (mag_norm_scale - 1) * (
             F.linear(x, transpose(weight, self.fan_in_fan_out))
         ) + mag_norm_scale * lora_result * scaling
-
+        print("result")
+        print(result_dora.shape)
         # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
         # This is only correct if dropout=0, otherwise results will differ:
         # https://github.com/huggingface/peft/pull/1474#issuecomment-1964682771
