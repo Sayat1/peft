@@ -104,7 +104,7 @@ class DoraLinearLayer(nn.Module):
         print(weight.shape)
         print("magnitude")
         print(magnitude.shape)
-        mag_norm_scale = (magnitude / weight_norm)
+        mag_norm_scale = (magnitude.reshape(-1,weight_norm.shape[0]) / weight_norm)
         print("magnorm1")
         print(mag_norm_scale.shape)
         mag_norm_scale = mag_norm_scale.view(-1, weight.shape[0])
