@@ -99,47 +99,24 @@ class DoraLinearLayer(nn.Module):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-        #lora_result = lora_B(lora_A(x))
-
-        # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
-        # calculate the same but using forward.
-        #x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
-        lora_weight = self.make_weight(lora_A.weight, lora_B.weight)
-
         magnitude = self.weight
-        weight = dequantize_module_weight(base_layer)
-        weight = weight.to(x.dtype)
-        weight_norm = weight + (lora_weight * scaling)
-        del weight
-        #weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
-        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
-        # "[...] we suggest treating ||V +∆V ||_c in
-        # Eq. (5) as a constant, thereby detaching it from the gradient
-        # graph. This means that while ||V + ∆V ||_c dynamically
-        # reflects the updates of ∆V , it won’t receive any gradient
-        # during backpropagation"
-        eps = torch.finfo(weight_norm.dtype).eps
-        norm = weight_norm.detach() \
+        A = lora_A.weight
+        B = lora_B.weight
+        orig_weight = dequantize_module_weight(base_layer)
+        orig_weight = orig_weight.to(A.dtype)
+        WP = orig_weight + (self.make_weight(A, B) * scaling)
+        del orig_weight
+        eps = torch.finfo(WP.dtype).eps
+        norm = WP.detach() \
                  .transpose(0, 1) \
-                 .reshape(weight_norm.shape[1], -1) \
+                 .reshape(WP.shape[1], -1) \
                  .norm(dim=1, keepdim=True) \
-                 .reshape(weight_norm.shape[1], *[1] * self.dora_num_dims) \
+                 .reshape(WP.shape[1], *[1] * self.dora_num_dims) \
                  .transpose(0, 1) + eps
-        
-        weight_norm = magnitude * (weight_norm / norm)
-        result_dora = F.linear(x,weight_norm,base_layer.bias)
-
-        # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
-        # This is only correct if dropout=0, otherwise results will differ:
-        # https://github.com/huggingface/peft/pull/1474#issuecomment-1964682771
-        # bias = self.get_base_layer().bias
-        # if bias is not None:
-        #     result = result - bias
-        # result = mag_norm_scale * result + mag_norm_scale * lora_B(lora_A(x)) * scaling
-        # if bias is not None:
-        #     result = result + bias
-
-        return result_dora
+        WP = magnitude * (WP / norm)
+        return F.linear(x,
+                       WP,
+                       self.orig_module.bias)
 
     def __repr__(self) -> str:
         rep = super().__repr__()
@@ -192,6 +169,7 @@ class DoraConv2dLayer(DoraLinearLayer):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
+        print("conv2dforward")
         weight = base_layer.weight
         #lora_weight = torch.mm(lora_B.weight.flatten(start_dim=1), lora_A.weight.flatten(start_dim=1))
         lora_weight = self.make_weight(lora_A.weight, lora_B.weight)
