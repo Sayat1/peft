@@ -111,7 +111,7 @@ class DoraLinearLayer(nn.Module):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-
+        print(self.weight)
         weight = (
                 base_layer.weight.data.to(x.dtype)
                 + self.make_weight(lora_A.weight,lora_B.weight).to(x.dtype) * scaling
