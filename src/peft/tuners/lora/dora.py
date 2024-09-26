@@ -108,7 +108,7 @@ class DoraLinearLayer(nn.Module):
         # print("magnorm3")
         # print(mag_norm_scale.shape)
         ms = (mag_norm_scale - 1)
-        fl = F.linear(x, transpose(weight, self.fan_in_fan_out))
+        fl = F.linear(x, transpose(mag_norm_scale, self.fan_in_fan_out))
         print("fl")
         print(fl.shape)
         mf = ms * fl
