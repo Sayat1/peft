@@ -99,6 +99,9 @@ class DoraLinearLayer(nn.Module):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
+        print("dora forward")
+        lora_result = lora_B(lora_A(x))
+
         magnitude = self.weight
         A = lora_A.weight
         B = lora_B.weight
@@ -114,7 +117,7 @@ class DoraLinearLayer(nn.Module):
                  .reshape(WP.shape[1], *[1] * self.dora_num_dims) \
                  .transpose(0, 1) + eps
         WP = magnitude * (WP / norm)
-        return F.linear(x, WP,base_layer.bias)
+        return F.linear(lora_result, WP,base_layer.bias)
 
     def __repr__(self) -> str:
         rep = super().__repr__()
