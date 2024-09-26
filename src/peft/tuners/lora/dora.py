@@ -114,9 +114,7 @@ class DoraLinearLayer(nn.Module):
                  .reshape(WP.shape[1], *[1] * self.dora_num_dims) \
                  .transpose(0, 1) + eps
         WP = magnitude * (WP / norm)
-        return F.linear(x,
-                       WP,
-                       self.orig_module.bias)
+        return F.linear(x, WP,base_layer.bias)
 
     def __repr__(self) -> str:
         rep = super().__repr__()
