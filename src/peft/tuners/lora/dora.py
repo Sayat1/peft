@@ -114,7 +114,7 @@ class DoraLinearLayer(nn.Module):
 
         weight = (
                 base_layer.weight.data.to(x.dtype)
-                + self.make_weight(x.device).to(x.dtype) * scaling
+                + self.make_weight(lora_A.weight,lora_B.weight).to(x.dtype) * scaling
             )
         weight = self.apply_weight_decompose(weight)
         bias = (
