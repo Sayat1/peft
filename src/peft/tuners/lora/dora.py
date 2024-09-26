@@ -46,6 +46,18 @@ class DoraLinearLayer(nn.Module):
         W = B.view(B.size(0), -1) @ A.view(A.size(0), -1)
         return W.view(self.shape)
 
+    def apply_weight_decompose(self, weight):
+        weight = weight.to(self.weight.dtype)
+        weight_norm = (
+            weight.transpose(0, 1)
+            .reshape(weight.shape[1], -1)
+            .norm(dim=1, keepdim=True)
+            .reshape(weight.shape[1], *[1] * self.dora_num_dims)
+            .transpose(0, 1)
+        ) + torch.finfo(weight.dtype).eps
+
+        return weight * (self.weight.to(weight.device) / weight_norm)
+
     def get_weight_shape(self, module: nn.Module) -> torch.Size:
         import bitsandbytes as bnb
         param = module.weight
@@ -99,52 +111,20 @@ class DoraLinearLayer(nn.Module):
         For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
         output.
         """
-        print("x shape")
-        print(x.shape)
-        lora_result = lora_B(lora_A(x))
-        # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
-        # calculate the same but using forward.
-        magnitude = self.weight
-        weight = dequantize_module_weight(base_layer)
-        weight = weight.to(x.dtype)
-        weight_norm = weight + (self.make_weight(lora_A.weight, lora_B.weight) * scaling)
-        print("weight_norm")
-        print(weight_norm)
-        print(weight_norm.shape)
-        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
-        # "[...] we suggest treating ||V +∆V ||_c in
-        # Eq. (5) as a constant, thereby detaching it from the gradient
-        # graph. This means that while ||V + ∆V ||_c dynamically
-        # reflects the updates of ∆V , it won’t receive any gradient
-        # during backpropagation"
-        weight_norm = weight_norm.detach()
-        bb = (magnitude / weight_norm)
-        print("bb")
-        print(bb.shape)
-        print("weight shape")
-        print(weight.shape)
-        mag_norm_scale = bb.view(-1, weight.shape[0])
-        print("mag_norm")
-        print(mag_norm_scale.shape)
-        #mag_norm_scale = (magnitude / weight_norm).view(1, -1)
-        print("xdd")
-        dd = (mag_norm_scale - 1)
-        ff= (F.linear(x, transpose(weight, self.fan_in_fan_out)))
-        print(dd.shape)
-        print(ff.shape)
-        result_dora = dd * ff  + mag_norm_scale * lora_result * scaling
 
-        # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
-        # This is only correct if dropout=0, otherwise results will differ:
-        # https://github.com/huggingface/peft/pull/1474#issuecomment-1964682771
-        # bias = self.get_base_layer().bias
-        # if bias is not None:
-        #     result = result - bias
-        # result = mag_norm_scale * result + mag_norm_scale * lora_B(lora_A(x)) * scaling
-        # if bias is not None:
-        #     result = result + bias
+        weight = (
+                base_layer[0].weight.data.to(x.dtype)
+                + self.make_weight(x.device).to(x.dtype) * scaling
+            )
+        weight = self.apply_weight_decompose(weight)
+        bias = (
+                None
+                if base_layer[0].bias is None
+                else base_layer[0].bias.data
+            )
 
-        return result_dora
+        return F.linear(x, weight, bias)
+
 
     def __repr__(self) -> str:
         rep = super().__repr__()
