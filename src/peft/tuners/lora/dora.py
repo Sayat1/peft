@@ -70,11 +70,8 @@ class DoraLinearLayer(nn.Module):
         """
         print("x")
         print(x.shape)
-        lora_result = lora_B(lora_A(x))
+        lora_result = lora_A(lora_B(x))
         print("lora_result")
-        print(lora_result.shape)
-        lora_result = lora_result.view(base_layer.weight.shape)
-        print("lora_result2")
         print(lora_result.shape)
 
         # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
