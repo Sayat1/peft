@@ -26,6 +26,37 @@ class DoraLinearLayer(nn.Module):
     def __init__(self, fan_in_fan_out):
         super().__init__()
         self.fan_in_fan_out = fan_in_fan_out
+        self.shape = None
+        self.dora_num_dims = None
+
+    def get_weight_shape(module: nn.Module) -> torch.Size:
+        import bitsandbytes as bnb
+        param = module.weight
+
+        if isinstance(param, bnb.nn.Params4bit):
+            if param.quant_state is not None:
+                return param.quant_state.shape
+            else:
+                return param.shape
+
+        return param.shape
+
+    def make_weight(self, A: torch.Tensor, B: torch.Tensor):
+        """Layer-type-independent way of creating a weight matrix from LoRA A/B.
+
+        While linear layer types are a straightforward matrix multiplication of
+        the weights, convolution is a little less straightforward. This function
+        will take a PEFT A/B matrix and return the full-sized weight matrix.
+
+        A should be the equivalent of "LoRA Down" in most code, and likewise B
+        the equivalent of "LoRA Up".
+
+        Thanks to KohakuBlueLeaf (author of LyCORIS) for showing me how to do
+        this in a layer-independent fashion. I was tearing my hair out over
+        wrangling the matrix shapes in a functionally correct manner before.
+        """
+        W = B.view(B.size(0), -1) @ A.view(A.size(0), -1)
+        return W.view(self.shape)
 
     def get_weight_norm(self, weight, lora_weight, scaling) -> torch.Tensor:
         # calculate L2 norm of weight matrix, column-wise
@@ -48,93 +79,48 @@ class DoraLinearLayer(nn.Module):
                 # yet because Int8Params cannot be correctly deep-copied (attributes vanish)
                 base_layer = deepcopy(base_layer)
 
-            weight = dequantize_module_weight(base_layer)
-            if weight.data.ndim == 4:  # For handling LoRAs applied to Conv2Ds.
-                lora_weight = torch.mm(lora_B.flatten(start_dim=1), lora_A.flatten(start_dim=1))
-                lora_weight = lora_weight.reshape(weight.shape)
-            else:
-                lora_weight = lora_B @ lora_A
-
-            if dtype_is_fp16:
-                lora_weight = lora_weight.half()
-            weight_norm = self.get_weight_norm(weight.to(lora_A.device), lora_weight, scaling)
+            orig_weight = dequantize_module_weight(base_layer).detach().to(dtype=torch.float)
+            self.shape = self.get_weight_shape(base_layer)
+            self.dora_num_dims = orig_weight.dim() - 1
+            weight_norm = nn.Parameter(
+                torch.norm(
+                    orig_weight.transpose(1, 0).reshape(orig_weight.shape[1], -1),
+                    dim=1, keepdim=True)
+                .reshape(orig_weight.shape[1], *[1] * self.dora_num_dims)
+                .transpose(1, 0)
+                .to(device=base_layer.weight.device)
+            )
 
         if place_on_cpu:
             weight_norm = weight_norm.to("cpu")
         self.weight = nn.Parameter(weight_norm, requires_grad=True)
 
     def forward(self, x, *, lora_A, lora_B, scaling, base_layer):
-        """
-        For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
-        output.
-        """
-        print("x")
-        print(x.shape)
-        lora_result = lora_B(lora_A(x))
-        print("lora_result")
-        print(lora_result.shape)
-
-        # Don't use `lora_weight = lora_B.weight @ lora_A.weight` because this causes errors with FSDP. Instead,
-        # calculate the same but using forward.
-        x_eye = torch.eye(lora_A.weight.shape[1], device=lora_A.weight.device, dtype=x.dtype)
-        lora_weight = lora_B(lora_A(x_eye)).T
-
+        A = lora_A.weight
+        B = lora_B.weight
+        orig_weight = dequantize_module_weight(base_layer).detach().to(dtype=A.dtype)
+        WP = orig_weight + (self.make_weight(A, B) * scaling)
+        del orig_weight
+        # A norm should never really end up zero at any point, but epsilon just
+        # to be safe if we underflow or something. Also, as per section 4.3 of
+        # the paper, we treat the norm as a constant for the purposes of
+        # backpropagation in order to save VRAM (to do this, we detach it from
+        # the gradient graph).
         magnitude = self.weight
-        weight = dequantize_module_weight(base_layer)
-        weight = weight.to(x.dtype)
-        print("weightbeforenorm")
-        print(weight.shape)
-        ##get_weight_norm
-        weight = transpose(weight, self.fan_in_fan_out)
-        weight = weight + scaling * lora_weight.detach()
-        #weight = weight.T
-        weight_norm = torch.linalg.norm(weight, dim=1).to(weight.dtype)
-        ###
-        #weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
-        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
-        # "[...] we suggest treating ||V +∆V ||_c in
-        # Eq. (5) as a constant, thereby detaching it from the gradient
-        # graph. This means that while ||V + ∆V ||_c dynamically
-        # reflects the updates of ∆V , it won’t receive any gradient
-        # during backpropagation"
-        weight_norm = weight_norm.detach()
-        print("weight_norm")
-        print(weight_norm.shape)
-        print("weight")
-        print(weight.shape)
-        print("magnitude")
-        print(magnitude.shape)
-        mag_norm_scale = (magnitude.reshape(-1,weight_norm.shape[0]) / weight_norm)
-        print("magnorm1")
-        print(mag_norm_scale.shape)
-        mag_norm_scale = mag_norm_scale.view(-1, weight.shape[0])
-        print("magnorm2")
-        print(mag_norm_scale.shape)
-        # mag_norm_scale = mag_norm_scale.norm(dim=1, keepdim=True)
-        # print("magnorm3")
-        # print(mag_norm_scale.shape)
-        ms = (mag_norm_scale - 1)
-        fl = F.linear(x, transpose(mag_norm_scale, self.fan_in_fan_out))
-        print("fl")
-        print(fl.shape)
-        mf = ms * fl
-        result_dora = mf + mag_norm_scale * lora_result * scaling
-        # result_dora = (mag_norm_scale - 1) * (
-        #     F.linear(x, transpose(weight, self.fan_in_fan_out))
-        # ) + mag_norm_scale * lora_result * scaling
-        print("result")
-        print(result_dora.shape)
-        # Note: Computation could potentially be accelerated by using the code below instead of calculating X@W again.
-        # This is only correct if dropout=0, otherwise results will differ:
-        # https://github.com/huggingface/peft/pull/1474#issuecomment-1964682771
-        # bias = self.get_base_layer().bias
-        # if bias is not None:
-        #     result = result - bias
-        # result = mag_norm_scale * result + mag_norm_scale * lora_B(lora_A(x)) * scaling
-        # if bias is not None:
-        #     result = result + bias
-
-        return result_dora
+        eps = torch.finfo(WP.dtype).eps
+        norm = WP.detach() \
+                 .transpose(0, 1) \
+                 .reshape(WP.shape[1], -1) \
+                 .norm(dim=1, keepdim=True) \
+                 .reshape(WP.shape[1], *[1] * self.dora_num_dims) \
+                 .transpose(0, 1) + eps
+        WP = magnitude * (WP / norm)
+        # In the DoRA codebase (and thus the paper results), they perform
+        # dropout on the *input*, rather than between layers, so we duplicate
+        # that here.
+        return F.linear(x,
+                       WP,
+                       base_layer.bias)
 
     def __repr__(self) -> str:
         rep = super().__repr__()

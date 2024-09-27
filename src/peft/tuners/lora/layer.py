@@ -584,7 +584,7 @@ class Linear(nn.Module, LoraLayer):
                     result = result + lora_B(lora_A(dropout(x))) * scaling
                 else:
                     x = dropout(x)
-                    result = result + self.lora_magnitude_vector[active_adapter](
+                    result = self.lora_magnitude_vector[active_adapter](
                         x,
                         lora_A=lora_A,
                         lora_B=lora_B,
