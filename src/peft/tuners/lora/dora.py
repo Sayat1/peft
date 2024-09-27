@@ -29,7 +29,7 @@ class DoraLinearLayer(nn.Module):
         self.shape = None
         self.dora_num_dims = None
 
-    def get_weight_shape(module: nn.Module) -> torch.Size:
+    def get_weight_shape(self, module: nn.Module) -> torch.Size:
         import bitsandbytes as bnb
         param = module.weight
 
