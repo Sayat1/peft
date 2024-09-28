@@ -162,36 +162,37 @@ class DoraConv2dLayer(DoraLinearLayer):
         return weight_norm
 
     def forward(self, x, *, lora_A, lora_B, scaling, base_layer):
-        """
-        For DoRA, calculate the extra output from LoRA with DoRA applied. This should be added on top of the base layer
-        output.
-        """
-        weight = base_layer.weight
-        lora_weight = torch.mm(lora_B.weight.flatten(start_dim=1), lora_A.weight.flatten(start_dim=1))
-        lora_weight = lora_weight.reshape(weight.shape)
+        A = lora_A.weight
+        B = lora_B.weight
+        orig_weight = dequantize_module_weight(base_layer).detach().to(dtype=A.dtype)
+        WP = orig_weight + (self.make_weight(A, B) * scaling)
+        del orig_weight
+        # A norm should never really end up zero at any point, but epsilon just
+        # to be safe if we underflow or something. Also, as per section 4.3 of
+        # the paper, we treat the norm as a constant for the purposes of
+        # backpropagation in order to save VRAM (to do this, we detach it from
+        # the gradient graph).
         magnitude = self.weight
-        weight_norm = self.get_weight_norm(weight, lora_weight.detach(), scaling)
-        # see section 4.3 of DoRA (https://arxiv.org/abs/2402.09353)
-        # "[...] we suggest treating ||V +∆V ||_c in
-        # Eq. (5) as a constant, thereby detaching it from the gradient
-        # graph. This means that while ||V + ∆V ||_c dynamically
-        # reflects the updates of ∆V , it won’t receive any gradient
-        # during backpropagation"
-        weight_norm = weight_norm.detach()
-        mag_norm_scale = magnitude / weight_norm
-        result_dora = (mag_norm_scale - 1) * (
-            F.conv2d(
-                x,
-                weight,
-                bias=None,
-                stride=base_layer.stride,
-                padding=base_layer.padding,
-                dilation=base_layer.dilation,
-                groups=base_layer.groups,
-            )
-        ) + mag_norm_scale * lora_B(lora_A(x)) * scaling
-
-        return result_dora
+        eps = torch.finfo(WP.dtype).eps
+        norm = WP.detach() \
+                 .transpose(0, 1) \
+                 .reshape(WP.shape[1], -1) \
+                 .norm(dim=1, keepdim=True) \
+                 .reshape(WP.shape[1], *[1] * self.dora_num_dims) \
+                 .transpose(0, 1) + eps
+        WP = magnitude * (WP / norm)
+        # In the DoRA codebase (and thus the paper results), they perform
+        # dropout on the *input*, rather than between layers, so we duplicate
+        # that here.
+        return F.conv2d(
+                    x,
+                    WP,
+                    bias=base_layer.bias,
+                    stride=base_layer.stride,
+                    padding=base_layer.padding,
+                    dilation=base_layer.dilation,
+                    groups=base_layer.groups,)
+ 
 
     def __repr__(self) -> str:
         rep = super().__repr__()
